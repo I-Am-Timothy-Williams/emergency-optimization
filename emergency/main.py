@@ -5,6 +5,8 @@ import numpy as np  # Import numpy for Poisson distribution
 from roomgenerator import *
 from patientgenerator import PatientGenerator
 import tkinter.messagebox as messagebox  # Add this import at the top of main.py
+import openpyxl
+from openpyxl.styles import Alignment
 
 class RoomPlanner(tk.Tk):
     def __init__(self):
@@ -31,9 +33,77 @@ class RoomPlanner(tk.Tk):
         self.grid_cells = []  # Keep track of grid cell coordinates
         self.initialize_grid()
 
+        self.initialize_excel("simulation_results.xlsx")
+
         self.distribution_type = None
         self.distribution_parameters = {}
         self.dragging_patient = None
+
+    def initialize_excel(self,file_name):
+        """Create an Excel file with the required headers."""
+        wb = openpyxl.Workbook()
+        sheet = wb.active
+        sheet.title = "Simulation Results"
+
+        # Add Headers
+        headers = [
+            "Hour",
+            "# of Busy Exam Rooms",
+            None,
+            None,
+            "# Patients in Waiting Room",
+            None,
+            None,
+            "# Patients Roomed Above Triage",
+            "# Patients Left Without Being Seen",
+            "# Patients Harmed While Waiting"
+        ]
+        sub_headers = [
+            None,
+            "A", "B", "C",
+            "A", "B", "C",
+            None, None, None
+        ]
+
+        sheet.append(headers)
+        sheet.append(sub_headers)
+
+        # Merge header cells
+        sheet.merge_cells("B1:D1")
+        sheet.merge_cells("E1:G1")
+        sheet.merge_cells("H1:H2")
+        sheet.merge_cells("I1:I2")
+        sheet.merge_cells("J1:J2")
+
+        # Center align the headers
+        for col in range(1, 11):
+            sheet.cell(row=1, column=col).alignment = Alignment(horizontal="center", vertical="center")
+            sheet.cell(row=2, column=col).alignment = Alignment(horizontal="center", vertical="center")
+
+        # Save the file
+        wb.save(file_name)
+
+    def update_excel(self,file_name, hour, busy_rooms, waiting_patients, roomed_above_triage, left_without_being_seen, harmed_from_neglect):
+        """Update the Excel sheet with the results for the current hour."""
+        wb = openpyxl.load_workbook(file_name)
+        sheet = wb.active
+
+        # Prepare the data for the row
+        row_data = [
+            hour,
+            busy_rooms["A"], busy_rooms["B"], busy_rooms["C"],
+            waiting_patients["A"], waiting_patients["B"], waiting_patients["C"],
+            roomed_above_triage,
+            left_without_being_seen,
+            harmed_from_neglect
+        ]
+
+        # Append the row
+        sheet.append(row_data)
+
+        # Save the updated file
+        wb.save(file_name)
+
 
     def create_input_fields(self):
         tk.Label(self.input_frame, text="Number of A Rooms:").grid(row=0, column=0)
@@ -282,6 +352,7 @@ class RoomPlanner(tk.Tk):
         )
         self.confirm_button.pack(pady=10)
 
+
     def confirm_choices(self):
         """Confirm the current hour's choices, increment time, and update patients."""
         # Increment the simulated time
@@ -294,46 +365,123 @@ class RoomPlanner(tk.Tk):
         # Update the time label dynamically
         self.time_label.config(text=self.format_time_label())
 
-        # Update hours_left for all patients
+        # Update hours_left for all patients in valid rooms
         patients_to_remove = []  # Track patients that need to be removed
         healed_patients = []  # Track details of healed patients
+
+        busy_rooms = {"A": 0, "B": 0, "C": 0}
+        waiting_patients = {"A": 0, "B": 0, "C": 0}
+
+        # Tracking for waiting room events and roomed above triage
+        left_without_being_seen = 0
+        harmed_from_neglect = 0
+        roomed_above_triage = 0
 
         for patient_icon in self.patient_widgets:
             tags = self.canvas.gettags(patient_icon)
 
-            # Find and update the hours_left tag
-            for tag in tags:
-                if tag.startswith("hours_left_"):
-                    hours_left = int(tag.split("_")[2]) - 1  # Decrement hours_left by 1
+            # Check if the patient is in a room (not the waiting room)
+            in_valid_room = False
+            for room_name, room_data in self.rooms.items():
+                if room_name != "WaitingRoom" and room_data["occupied"]:
+                    room_rects = self.canvas.find_withtag(room_name)
+                    if room_rects and self.is_patient_in_room(patient_icon, self.canvas.coords(room_rects[0])):
+                        in_valid_room = True
 
-                    if hours_left <= 0:
-                        patients_to_remove.append(patient_icon)  # Mark for removal
-                        # Extract patient type and other details for the summary
+                        # Determine if this patient is roomed above triage
                         patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
-                        healed_patients.append(f"Type: {patient_type}")
-                    else:
-                        # Update the tag with the new hours_left
-                        new_tags = tuple(t for t in tags if not t.startswith("hours_left_")) + (f"hours_left_{hours_left}",)
-                        self.canvas.itemconfig(patient_icon, tags=new_tags)
+                        room_type = room_name[0]  # Get the first letter of the room name (A, B, or C)
+                        if (
+                            (patient_type == "B" and room_type == "A") or
+                            (patient_type == "C" and room_type in ["A", "B"])
+                        ):
+                            roomed_above_triage += 1
+                        break
 
-        # Remove patients with hours_left <= 0
+            if in_valid_room:
+                # Find and update the hours_left tag
+                for tag in tags:
+                    if tag.startswith("hours_left_"):
+                        hours_left = int(tag.split("_")[2]) - 1  # Decrement hours_left by 1
+
+                        if hours_left <= 0:
+                            patients_to_remove.append(patient_icon)  # Mark for removal
+                            # Extract patient type and other details for the summary
+                            patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
+                            healed_patients.append(f"Type: {patient_type}")
+                        else:
+                            # Update the tag with the new hours_left
+                            new_tags = tuple(t for t in tags if not t.startswith("hours_left_")) + (f"hours_left_{hours_left}",)
+                            self.canvas.itemconfig(patient_icon, tags=new_tags)
+            else:
+                # Patient is in the waiting room
+                patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
+                if patient_type in ["B", "C"]:
+                    # Roll a 20-sided die for leaving without being seen
+                    if random.randint(1, 20) == 20:
+                        patients_to_remove.append(patient_icon)
+                        left_without_being_seen += 1
+                elif patient_type == "A":
+                    # Roll a 20-sided die for harm from neglect
+                    if random.randint(1, 20) == 20:
+                        patients_to_remove.append(patient_icon)
+                        harmed_from_neglect += 1
+
+        # Remove patients with hours_left <= 0 or other conditions
         for patient_icon in patients_to_remove:
             self.canvas.delete(patient_icon)
             self.patient_widgets.remove(patient_icon)
 
+        for patient_icon in self.patient_widgets:
+            tags = self.canvas.gettags(patient_icon)
+            patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
+
+            # Check if patient is in a room or waiting room
+            in_valid_room = False
+            for room_name, room_data in self.rooms.items():
+                if room_name != "WaitingRoom" and room_data["occupied"]:
+                    room_rects = self.canvas.find_withtag(room_name)
+                    if room_rects and self.is_patient_in_room(patient_icon, self.canvas.coords(room_rects[0])):
+                        in_valid_room = True
+                        busy_rooms[room_name[0]] += 1  # Increment busy room count
+                        break
+            if not in_valid_room:
+                waiting_patients[patient_type] += 1
+
         # Inform the user
         healed_message = (
-            f"The time has been updated to: {self.current_time.strftime("%H:%M")} - {(self.current_time+datetime.timedelta(hours=1)).strftime("%H:%M")}.\n\n"
+            f"The time has been updated to: {self.current_time.strftime('%H:%M')} - {(self.current_time + datetime.timedelta(hours=1)).strftime('%H:%M')}.\n\n"
         )
         if healed_patients:
-            healed_message += "Patients healed and removed:\n" + "\n".join(healed_patients)
+            healed_message += "Patients healed and removed:\n" + "\n".join(healed_patients) + "\n\n"
         else:
-            healed_message += "No patients have been healed this hour."
+            healed_message += "No patients have been healed this hour.\n\n"
+
+        # Summary of waiting room events and roomed above triage
+        healed_message += f"Patients who left without being seen: {left_without_being_seen}\n"
+        healed_message += f"Patients harmed from neglect: {harmed_from_neglect}\n"
+        healed_message += f"Patients roomed above triage: {roomed_above_triage}"
+
+            # Format the hour
+        hour = f"{(self.current_time- datetime.timedelta(hours=1)).strftime('%I:%M %p')} - {(self.current_time).strftime('%I:%M %p')}"
+
+        # Update the Excel file
+        self.update_excel(
+            "simulation_results.xlsx",
+            hour,
+            busy_rooms,
+            waiting_patients,
+            roomed_above_triage,
+            left_without_being_seen,
+            harmed_from_neglect
+        )
 
         messagebox.showinfo("Time Updated", healed_message)
 
         # Add new patients for the next hour
         self.add_new_patients()
+
+
 
     def add_new_patients(self):
         """Add new patients to the waiting room for the current hour."""
@@ -421,8 +569,9 @@ class RoomPlanner(tk.Tk):
                 if x1 <= event.x <= x2 and y1 <= event.y <= y2:
                     # Check if this cell contains a room
                     for room_name, characteristics in self.rooms.items():
-                        room_rect = self.canvas.find_withtag(room_name)
-                        if room_rect:  # Room exists on the canvas
+                        room_rects = self.canvas.find_withtag(room_name)  # Get all canvas items with this tag
+                        if room_rects:  # Ensure there's at least one matching canvas item
+                            room_rect = room_rects[0]  # Use the first matching item
                             room_coords = self.canvas.coords(room_rect)
                             if (
                                 room_coords[0] == x1
@@ -431,7 +580,16 @@ class RoomPlanner(tk.Tk):
                                 and room_coords[3] == y2
                             ):
                                 room_type = room_name[0]  # Room type is the first letter of the room name
-                                
+
+                                # Check room occupancy
+                                if characteristics["occupied"]:
+                                    messagebox.showerror(
+                                        "Room Occupied",
+                                        f"Room {room_name} is already occupied by another patient."
+                                    )
+                                    self.snap_to_waiting_room()
+                                    return
+
                                 # Apply type-based placement restrictions
                                 if (
                                     (patient_type == "A" and room_type != "A") or
@@ -444,26 +602,46 @@ class RoomPlanner(tk.Tk):
                                     self.snap_to_waiting_room()
                                     return
 
-                                # Snap to the room if placement is valid
+                                # Mark the room as occupied
+                                characteristics["occupied"] = True
+
+                                # Snap the patient to the room
                                 self.canvas.coords(self.dragging_patient, x1 + 10, y1 + 10, x1 + 30, y1 + 30)
+                                self.canvas.addtag_withtag(room_name, self.dragging_patient)  # Tag the patient with the room name
                                 self.dragging_patient = None
                                 return
 
             # If no valid room was found, snap back to the waiting room
             self.snap_to_waiting_room()
 
+
     def snap_to_waiting_room(self):
-        """Snap the dragged patient back to the waiting room."""
+        """Snap the dragged patient back to the waiting room and update room occupancy."""
+        # Reset the `occupied` attribute if the patient was tagged with a room
+        tags = self.canvas.gettags(self.dragging_patient)
+        for tag in tags:
+            if tag in self.rooms:
+                self.rooms[tag]["occupied"] = False  # Mark the room as unoccupied
+
+        # Move the patient back to the waiting room
         index = self.patient_widgets.index(self.dragging_patient)
         x = 50 + index * 100
         self.canvas.coords(self.dragging_patient, x, 20, x + 20, 40)
         self.dragging_patient = None
+
 
     def format_time_label(self):
         """Format the current simulated time as a string."""
         next_hour = self.current_time + datetime.timedelta(hours=1)
         return f"Time: {self.current_time.strftime('%I:%M %p')} - {next_hour.strftime('%I:%M %p')}"
 
+    def is_patient_in_room(self, patient, room_coords):
+        """Check if a patient is within the bounds of a room."""
+        patient_coords = self.canvas.coords(patient)
+        return (
+            room_coords[0] <= patient_coords[0] <= room_coords[2]
+            and room_coords[1] <= patient_coords[1] <= room_coords[3]
+        )
 
 
 
