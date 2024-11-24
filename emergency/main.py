@@ -244,6 +244,15 @@ class RoomPlanner(tk.Tk):
 
         confirm_button = tk.Button(self.input_frame, text="Confirm", command=self.confirm_distribution)
         confirm_button.pack()
+
+        tk.Label(self.input_frame, text="Select Auto-Solve Option:").pack()
+        self.auto_solve_var = tk.StringVar(self)
+        self.auto_solve_var.set("None")  # Default option
+        auto_solve_menu = tk.OptionMenu(
+            self.input_frame, self.auto_solve_var, "None", "Option 1: Exact Room Type", "Option 2: Any Available Room"
+        )
+        auto_solve_menu.pack()
+
         self.update_distribution_fields("Poisson")
 
     def update_distribution_fields(self, distribution_type):
@@ -329,10 +338,9 @@ class RoomPlanner(tk.Tk):
         if not hasattr(self, "time_label"):
             self.time_label = tk.Label(self.input_frame, text=self.format_time_label(), font=("Helvetica", 16))
             self.time_label.pack(pady=10)
-        # Update the time label instead of creating a new one
         self.time_label.config(text=self.format_time_label())
 
-        # Generate patients for each type (A, B, C)
+        # Generate patients for the first hour
         self.patient_widgets = []
         for patient_type in ["A", "B", "C"]:
             num_patients = self.determine_patient_count(patient_type)
@@ -341,16 +349,112 @@ class RoomPlanner(tk.Tk):
                 patient_profile = self.patient_generator.generate_patient_profile(arrival_time, patient_type)
                 self.create_patient_widget(patient_profile)
 
-        # Add a "Confirm Choices" button after generating patients
-        self.confirm_button = tk.Button(
-            self.input_frame,
-            text="Confirm Choices",
-            font=("Helvetica", 14, "bold"),
-            bg="green",
-            fg="white",
-            command=self.confirm_choices
-        )
-        self.confirm_button.pack(pady=10)
+        # Handle auto-solve based on the selected option
+        auto_solve_option = self.auto_solve_var.get()
+        if auto_solve_option in ["Option 1: Exact Room Type", "Option 2: Any Available Room"]:
+            self.fast_forward_simulation(auto_solve_option)
+        else:
+            # Add a "Confirm Choices" button for manual play
+            self.confirm_button = tk.Button(
+                self.input_frame,
+                text="Confirm Choices",
+                font=("Helvetica", 14, "bold"),
+                bg="green",
+                fg="white",
+                command=self.confirm_choices
+            )
+            self.confirm_button.pack(pady=10)
+
+
+    def auto_solve_exact_room_type(self):
+        """Automatically assign patients to their exact room type."""
+        placement_made = True  # Track whether any placements were made this pass
+
+        while placement_made:
+            placement_made = False  # Reset for this iteration
+
+            for patient_icon in self.patient_widgets:
+                tags = self.canvas.gettags(patient_icon)
+                patient_type = next((t for t in tags if t in ["A", "B", "C"]), None)
+
+                # Find the first available room of the exact type
+                for room_name, room_data in self.rooms.items():
+                    if room_name[0] == patient_type and not room_data["occupied"]:
+                        room_rects = self.canvas.find_withtag(room_name)
+                        if room_rects:
+                            # Assign the patient to the room
+                            room_coords = self.canvas.coords(room_rects[0])
+                            self.canvas.coords(patient_icon, room_coords[0] + 10, room_coords[1] + 10, room_coords[0] + 30, room_coords[1] + 30)
+                            room_data["occupied"] = True  # Mark the room as occupied
+                            print(f"Placing patient {patient_type} in room {room_name}")
+                            print(f"Tags before placement: {tags}")
+                            print(f"Tags after placement: {self.canvas.gettags(patient_icon)}")
+                            # Ensure the patient's tags are correct
+                            current_tags = set(tags)
+                            # Ensure the hours_left tag exists
+                            hours_left_tag = next((t for t in tags if t.startswith("hours_left_")), None)
+                            if not hours_left_tag:
+                                hours_left_tag = "hours_left_1"  # Default hours_left if missing
+                                current_tags.add(hours_left_tag)
+                            
+                            # Reapply the updated tags to the patient
+                            self.canvas.itemconfig(patient_icon, tags=tuple(current_tags))
+
+                            # Remove the patient from the waiting room
+                            self.patient_widgets.remove(patient_icon)
+                            placement_made = True
+                            break  # Move to the next patient
+            # Exit loop if no placements were made this pass
+            if not placement_made:
+                break
+
+    def auto_solve_any_available_room(self):
+        """Automatically assign patients to any available room they can go into."""
+        placement_made = True  # Track whether any placements were made this pass
+
+        while placement_made:
+            placement_made = False  # Reset for this iteration
+
+            for patient_icon in self.patient_widgets[:]:  # Use [:] to avoid modifying the list during iteration
+                tags = self.canvas.gettags(patient_icon)
+                patient_type = next((t for t in tags if t in ["A", "B", "C"]), None)
+
+                # Find the first available room the patient can go into
+                for room_name, room_data in self.rooms.items():
+                    if not room_data.get("occupied", False):  # Check if the room is available
+                        room_type = room_name[0]
+                        if (
+                            (patient_type == "A" and room_type == "A") or
+                            (patient_type == "B" and room_type in ["A", "B"]) or
+                            (patient_type == "C" and room_type in ["A", "B", "C"])
+                        ):
+                            room_rects = self.canvas.find_withtag(room_name)
+                            if room_rects:
+                                # Assign the patient to the room
+                                room_coords = self.canvas.coords(room_rects[0])
+                                self.canvas.coords(patient_icon, room_coords[0] + 10, room_coords[1] + 10, room_coords[0] + 30, room_coords[1] + 30)
+                                room_data["occupied"] = True  # Mark the room as occupied
+                                print(f"Placing patient {patient_type} in room {room_name}")
+                                print(f"Tags before placement: {tags}")
+                                print(f"Tags after placement: {self.canvas.gettags(patient_icon)}")
+                                
+                                # Ensure the patient's tags are correct
+                                current_tags = set(tags)
+                                hours_left_tag = next((t for t in tags if t.startswith("hours_left_")), None)
+                                if not hours_left_tag:
+                                    hours_left_tag = "hours_left_1"  # Default hours_left if missing
+                                    current_tags.add(hours_left_tag)
+
+                                # Reapply the updated tags to the patient
+                                self.canvas.itemconfig(patient_icon, tags=tuple(current_tags))
+
+                                # Remove the patient from the waiting room
+                                self.patient_widgets.remove(patient_icon)
+                                placement_made = True
+                                break  # Move to the next patient
+            # Exit loop if no placements were made this pass
+            if not placement_made:
+                break
 
 
     def confirm_choices(self):
@@ -365,92 +469,81 @@ class RoomPlanner(tk.Tk):
         # Update the time label dynamically
         self.time_label.config(text=self.format_time_label())
 
-        # Update hours_left for all patients in valid rooms
-        patients_to_remove = []  # Track patients that need to be removed
+        # Track metrics
+        patients_to_remove = []  # Track patients to be removed
         healed_patients = []  # Track details of healed patients
 
         busy_rooms = {"A": 0, "B": 0, "C": 0}
         waiting_patients = {"A": 0, "B": 0, "C": 0}
 
-        # Tracking for waiting room events and roomed above triage
+        # Track waiting room events and roomed above triage
         left_without_being_seen = 0
         harmed_from_neglect = 0
         roomed_above_triage = 0
 
-        for patient_icon in self.patient_widgets:
+        # Process all patients in the canvas
+        for patient_icon in self.canvas.find_all():
             tags = self.canvas.gettags(patient_icon)
 
-            # Check if the patient is in a room (not the waiting room)
-            in_valid_room = False
-            for room_name, room_data in self.rooms.items():
-                if room_name != "WaitingRoom" and room_data["occupied"]:
-                    room_rects = self.canvas.find_withtag(room_name)
-                    if room_rects and self.is_patient_in_room(patient_icon, self.canvas.coords(room_rects[0])):
-                        in_valid_room = True
-
-                        # Determine if this patient is roomed above triage
-                        patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
-                        room_type = room_name[0]  # Get the first letter of the room name (A, B, or C)
-                        if (
-                            (patient_type == "B" and room_type == "A") or
-                            (patient_type == "C" and room_type in ["A", "B"])
-                        ):
-                            roomed_above_triage += 1
-                        break
-
-            if in_valid_room:
-                # Find and update the hours_left tag
-                for tag in tags:
-                    if tag.startswith("hours_left_"):
-                        hours_left = int(tag.split("_")[2]) - 1  # Decrement hours_left by 1
-
-                        if hours_left <= 0:
-                            patients_to_remove.append(patient_icon)  # Mark for removal
-                            # Extract patient type and other details for the summary
-                            patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
-                            healed_patients.append(f"Type: {patient_type}")
-                        else:
-                            # Update the tag with the new hours_left
-                            new_tags = tuple(t for t in tags if not t.startswith("hours_left_")) + (f"hours_left_{hours_left}",)
-                            self.canvas.itemconfig(patient_icon, tags=new_tags)
-            else:
-                # Patient is in the waiting room
+            # Check if the patient is a valid patient icon
+            if any(tag.startswith("patient_") for tag in tags):
                 patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
-                if patient_type in ["B", "C"]:
-                    # Roll a 20-sided die for leaving without being seen
-                    if random.randint(1, 20) == 20:
-                        patients_to_remove.append(patient_icon)
-                        left_without_being_seen += 1
-                elif patient_type == "A":
-                    # Roll a 20-sided die for harm from neglect
-                    if random.randint(1, 20) == 20:
-                        patients_to_remove.append(patient_icon)
-                        harmed_from_neglect += 1
+                hours_left_tag = next((t for t in tags if t.startswith("hours_left_")), None)
 
-        # Remove patients with hours_left <= 0 or other conditions
+                # Check if the patient is in a valid room
+                in_valid_room = False
+                for room_name, room_data in self.rooms.items():
+                    if room_name != "WaitingRoom" and room_data["occupied"]:
+                        room_rects = self.canvas.find_withtag(room_name)
+                        if room_rects and self.is_patient_in_room(patient_icon, self.canvas.coords(room_rects[0])):
+                            in_valid_room = True
+                            busy_rooms[room_name[0]] += 1  # Increment room count
+
+                            # Check if patient is roomed above triage
+                            room_type = room_name[0]
+                            if (
+                                (patient_type == "B" and room_type == "A") or
+                                (patient_type == "C" and room_type in ["A", "B"])
+                            ):
+                                roomed_above_triage += 1
+
+                            # Process hours_left for healing
+                            if hours_left_tag:
+                                hours_left = int(hours_left_tag.split("_")[2]) - 1
+                                if hours_left <= 0:
+                                    patients_to_remove.append(patient_icon)
+                                    healed_patients.append(f"Type: {patient_type}")
+                                    room_data["occupied"] = False  # Free the room
+                                else:
+                                    # Update the tag with the new hours_left
+                                    new_tags = tuple(t for t in tags if not t.startswith("hours_left_")) + (f"hours_left_{hours_left}",)
+                                    self.canvas.itemconfig(patient_icon, tags=new_tags)
+                            break  # No need to check more rooms for this patient
+
+                if not in_valid_room:
+                    # Patient is in the waiting room
+                    waiting_patients[patient_type] += 1
+                    if patient_type in ["B", "C"]:
+                        # Roll a 20-sided die for leaving without being seen
+                        if random.randint(1, 20) == 20:
+                            patients_to_remove.append(patient_icon)
+                            left_without_being_seen += 1
+                    elif patient_type == "A":
+                        # Roll a 20-sided die for harm from neglect
+                        if random.randint(1, 20) == 20:
+                            patients_to_remove.append(patient_icon)
+                            harmed_from_neglect += 1
+
+        # Remove patients from the canvas
         for patient_icon in patients_to_remove:
             self.canvas.delete(patient_icon)
-            self.patient_widgets.remove(patient_icon)
-
-        for patient_icon in self.patient_widgets:
-            tags = self.canvas.gettags(patient_icon)
-            patient_type = next((t for t in tags if t in ["A", "B", "C"]), "Unknown")
-
-            # Check if patient is in a room or waiting room
-            in_valid_room = False
-            for room_name, room_data in self.rooms.items():
-                if room_name != "WaitingRoom" and room_data["occupied"]:
-                    room_rects = self.canvas.find_withtag(room_name)
-                    if room_rects and self.is_patient_in_room(patient_icon, self.canvas.coords(room_rects[0])):
-                        in_valid_room = True
-                        busy_rooms[room_name[0]] += 1  # Increment busy room count
-                        break
-            if not in_valid_room:
-                waiting_patients[patient_type] += 1
+            # Only remove from self.patient_widgets if the patient exists in the list
+            if patient_icon in self.patient_widgets:
+                self.patient_widgets.remove(patient_icon)
 
         # Inform the user
         healed_message = (
-            f"The time has been updated to: {self.current_time.strftime('%H:%M')} - {(self.current_time + datetime.timedelta(hours=1)).strftime('%H:%M')}.\n\n"
+            f"The time has been updated to: {self.current_time.strftime('%I:%M %p')} - {(self.current_time + datetime.timedelta(hours=1)).strftime('%I:%M %p')}.\n\n"
         )
         if healed_patients:
             healed_message += "Patients healed and removed:\n" + "\n".join(healed_patients) + "\n\n"
@@ -462,8 +555,8 @@ class RoomPlanner(tk.Tk):
         healed_message += f"Patients harmed from neglect: {harmed_from_neglect}\n"
         healed_message += f"Patients roomed above triage: {roomed_above_triage}"
 
-            # Format the hour
-        hour = f"{(self.current_time- datetime.timedelta(hours=1)).strftime('%I:%M %p')} - {(self.current_time).strftime('%I:%M %p')}"
+        # Format the hour
+        hour = f"{(self.current_time - datetime.timedelta(hours=1)).strftime('%I:%M %p')} - {self.current_time.strftime('%I:%M %p')}"
 
         # Update the Excel file
         self.update_excel(
@@ -480,6 +573,8 @@ class RoomPlanner(tk.Tk):
 
         # Add new patients for the next hour
         self.add_new_patients()
+
+
 
 
 
@@ -642,6 +737,34 @@ class RoomPlanner(tk.Tk):
             room_coords[0] <= patient_coords[0] <= room_coords[2]
             and room_coords[1] <= patient_coords[1] <= room_coords[3]
         )
+    
+    def fast_forward_simulation(self, auto_solve_option):
+        """Fast-forward through the simulation, automatically solving each hour."""
+        while self.current_time.strftime("%H:%M") != "05:00":
+            # Auto-solve the current hour
+            if auto_solve_option == "Option 1: Exact Room Type":
+                self.auto_solve_exact_room_type()
+            elif auto_solve_option == "Option 2: Any Available Room":
+                self.auto_solve_any_available_room()
+
+            # Ensure `confirm_choices` is called to handle healing and progression
+            self.confirm_choices()
+
+            # Stop if we reach the end of the day
+            if self.current_time.strftime("%H:%M") == "06:00":
+                break
+
+        # Display a summary message at the end
+        messagebox.showinfo(
+            "Simulation Complete",
+            "The simulation has completed. You can review the results in the Excel file."
+        )
+
+
+
+
+
+
 
 
 
