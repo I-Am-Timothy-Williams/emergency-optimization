@@ -9,7 +9,7 @@ import openpyxl
 from openpyxl.styles import Alignment
 
 class RoomPlanner(tk.Tk):
-    def __init__(self):
+    def __init__(self,batch_mode=False):
         super().__init__()
         self.title("Hospital Room Planner")
         self.geometry("800x600")
@@ -17,6 +17,7 @@ class RoomPlanner(tk.Tk):
         self.room_widgets = []
         self.grid_size = 4
         self.patient_generator = PatientGenerator()
+        self.batch_mode = batch_mode
 
         # Initialize running totals
         self.total_a_patients = 0
@@ -28,6 +29,7 @@ class RoomPlanner(tk.Tk):
         self.total_harmed_cost = 0
         self.total_staffing_cost = 0
         self.total_costs = 0
+        self.average_utilization = 0
 
         self.a_count = 0
         self.b_count = 0
@@ -213,18 +215,15 @@ class RoomPlanner(tk.Tk):
         """Display a confirmation dialog for the total cost and rooms."""
         total_cost, total_rooms = self.calculate_total_cost_and_rooms()
 
-        if total_cost > 42000:
-            messagebox.showerror(
-                "Error",
-                f"Total cost ({total_cost}) exceeds the allowed limit of 42000. Please reselect the number of rooms."
-            )
+        if total_cost > 42000 or total_rooms > 16:
+            if self.batch_mode:
+                return False
+            messagebox.showerror("Error", f"Invalid room configuration: Cost ({total_cost}) or room count ({total_rooms}) exceeded.")
             return False
-        if total_rooms > 16:
-            messagebox.showerror(
-                "Error",
-                f"Total number of rooms ({total_rooms}) exceeds the limit of 16. Please reselect the number of rooms."
-            )
-            return False
+
+        if self.batch_mode:
+            return True  # Automatically approve in batch mode
+
 
         # Show confirmation and proceed
         proceed = messagebox.askyesno(
@@ -254,7 +253,10 @@ class RoomPlanner(tk.Tk):
         self.create_waiting_room()
         self.create_grid()
         self.snap_rooms_to_grid()
-        self.show_distribution_options()
+        if self.batch_mode == False:
+            self.show_distribution_options()
+        else:
+            self.confirm_distribution()
 
 
     def create_waiting_room(self):
@@ -362,13 +364,21 @@ class RoomPlanner(tk.Tk):
 
     def confirm_distribution(self):
         """Store the selected distribution and parameters for each patient type, confirm, then start simulation."""
-        self.distribution_type = self.distribution_var.get()
-        self.distribution_parameters = {
-            "A": self.get_distribution_parameters(self.a_param_entries),
-            "B": self.get_distribution_parameters(self.b_param_entries),
-            "C": self.get_distribution_parameters(self.c_param_entries),
-        }
-
+        if self.batch_mode == False:
+            self.distribution_type = self.distribution_var.get()
+            self.distribution_parameters = {
+                "A": self.get_distribution_parameters(self.a_param_entries),
+                "B": self.get_distribution_parameters(self.b_param_entries),
+                "C": self.get_distribution_parameters(self.c_param_entries),
+            }
+        else:
+            self.distribution_type = 'Poisson'
+            self.auto_solve_var = "Option 1: Exact Room Type"
+            self.distribution_parameters = {'A': {'lambda': 2.0}, 'B': {'lambda': 2.0}, 'C': {'lambda': 2.0}}
+            print('potato')
+            self.start_simulation()
+            
+            return 
         # Ask for confirmation
         proceed = messagebox.askyesno(
             "Confirm Distribution",
@@ -418,7 +428,10 @@ class RoomPlanner(tk.Tk):
                 self.create_patient_widget(patient_profile)
 
         # Handle auto-solve based on the selected option
-        auto_solve_option = self.auto_solve_var.get()
+        if self.batch_mode == False:
+            auto_solve_option = self.auto_solve_var.get()
+        else:
+            auto_solve_option = self.auto_solve_var
         if auto_solve_option in ["Option 1: Exact Room Type", "Option 2: Any Available Room"]:
             self.fast_forward_simulation(auto_solve_option)
         else:
@@ -529,7 +542,8 @@ class RoomPlanner(tk.Tk):
         """Confirm the current hour's choices, increment time, and update patients."""
         # Increment the simulated time
         if self.current_time.strftime("%H:%M") == "05:00":
-            messagebox.showinfo("End of Cycle", "You have reached 5:00 AM. The simulation will restart.")
+            if self.batch_mode == False:
+                messagebox.showinfo("End of Cycle", "You have reached 5:00 AM. The simulation will restart.")
             self.current_time = datetime.datetime.strptime("06:00", "%H:%M")  # Reset to 6:00 AM
         else:
             self.current_time += datetime.timedelta(hours=1)  # Increment time by one hour
@@ -642,8 +656,8 @@ class RoomPlanner(tk.Tk):
             left_without_being_seen,
             harmed_from_neglect
         )
-
-        messagebox.showinfo("Time Updated", healed_message)
+        if self.batch_mode == False:
+            messagebox.showinfo("Time Updated", healed_message)
 
         # Add new patients for the next hour
         self.add_new_patients()
@@ -838,11 +852,12 @@ class RoomPlanner(tk.Tk):
             num_b_patients=self.total_b_patients,
             num_c_patients=self.total_c_patients,
         )
-        # Display a summary message at the end
-        messagebox.showinfo(
-            "Simulation Complete",
-            "The simulation has completed. You can review the results in the Excel file."
-        )
+        if self.batch_mode == False:
+            # Display a summary message at the end
+            messagebox.showinfo(
+                "Simulation Complete",
+                "The simulation has completed. You can review the results in the Excel file."
+            )
         self.clear_patients()
         
     def clear_patients(self):
@@ -907,6 +922,8 @@ class RoomPlanner(tk.Tk):
         wb.save(file_name)
 
 
+
 if __name__ == "__main__":
-    app = RoomPlanner()
+    app = RoomPlanner(batch_mode=True)
     app.mainloop()
+    
