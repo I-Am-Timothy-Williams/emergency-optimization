@@ -18,6 +18,21 @@ class RoomPlanner(tk.Tk):
         self.grid_size = 4
         self.patient_generator = PatientGenerator()
 
+        # Initialize running totals
+        self.total_a_patients = 0
+        self.total_b_patients = 0
+        self.total_c_patients = 0
+        self.total_revenue = 0
+        self.total_waiting_cost = 0
+        self.total_lwbs_cost = 0
+        self.total_harmed_cost = 0
+        self.total_staffing_cost = 0
+        self.total_costs = 0
+
+        self.a_count = 0
+        self.b_count = 0
+        self.c_count = 0
+
         self.input_frame = tk.Frame(self)
         self.input_frame.pack(pady=10)
         self.create_input_fields()
@@ -149,7 +164,7 @@ class RoomPlanner(tk.Tk):
     
         # Append the row to the "Simulation Results" sheet
         sheet.append(row_data)
-    
+
         # Save the updated file
         wb.save(file_name)
 
@@ -224,6 +239,9 @@ class RoomPlanner(tk.Tk):
         b_count = int(self.b_count_entry.get())
         c_count = int(self.c_count_entry.get())
 
+        self.a_count = a_count
+        self.b_count = b_count
+        self.c_count = c_count
         room_manager = RoomManager()
         self.rooms = room_manager.generate_rooms(a_count, b_count, c_count)
 
@@ -563,6 +581,12 @@ class RoomPlanner(tk.Tk):
                                 if hours_left <= 0:
                                     patients_to_remove.append(patient_icon)
                                     healed_patients.append(f"Type: {patient_type}")
+                                    if patient_type == "A":
+                                        self.total_a_patients += 1
+                                    if patient_type == "B":
+                                        self.total_b_patients += 1
+                                    if patient_type == "C":
+                                        self.total_c_patients += 1
                                     room_data["occupied"] = False  # Free the room
                                 else:
                                     # Update the tag with the new hours_left
@@ -790,7 +814,7 @@ class RoomPlanner(tk.Tk):
     
     def fast_forward_simulation(self, auto_solve_option):
         """Fast-forward through the simulation, automatically solving each hour."""
-        while self.current_time.strftime("%H:%M") != "05:00":
+        while True:
             # Auto-solve the current hour
             if auto_solve_option == "Option 1: Exact Room Type":
                 self.auto_solve_exact_room_type()
@@ -800,22 +824,87 @@ class RoomPlanner(tk.Tk):
             # Ensure `confirm_choices` is called to handle healing and progression
             self.confirm_choices()
 
-            # Stop if we reach the end of the day
+            # Check if the simulation has completed the last hour
             if self.current_time.strftime("%H:%M") == "06:00":
                 break
-
+        
+                # Finalize Sheet 2 with calculations
+        self.finalize_sheet_two(
+            "simulation_results.xlsx",
+            num_a_rooms=self.a_count,
+            num_b_rooms=self.b_count,
+            num_c_rooms=self.c_count,
+            num_a_patients=self.total_a_patients,
+            num_b_patients=self.total_b_patients,
+            num_c_patients=self.total_c_patients,
+        )
         # Display a summary message at the end
         messagebox.showinfo(
             "Simulation Complete",
             "The simulation has completed. You can review the results in the Excel file."
         )
+        self.clear_patients()
+        
+    def clear_patients(self):
+        """Clear all patient widgets and reset patient-related data."""
+        # Delete all patient icons from the canvas
+        for patient_icon in self.patient_widgets:
+            self.canvas.delete(patient_icon)
+        
+        # Reset the list of patient widgets
+        self.patient_widgets = []
+    def finalize_sheet_two(self, file_name, num_a_rooms, num_b_rooms, num_c_rooms, num_a_patients, num_b_patients, num_c_patients):
+        """Finalize the Profit and Costs sheet with calculations after the simulation."""
+        wb = openpyxl.load_workbook(file_name)
+        sheet1 = wb["Simulation Results"]
+        sheet2 = wb["Profit and Costs"]
 
+        # Formulas for room utilization
+        sheet2["B2"] = f"=SUM('Simulation Results'!B3:B26)"  # Total A room hours
+        sheet2["B3"] = f"=SUM('Simulation Results'!C3:C26)"  # Total B room hours
+        sheet2["B4"] = f"=SUM('Simulation Results'!D3:D26)"  # Total C room hours
+        sheet2["B5"] = f"=SUM(B2:B4)"                        # Total room hours
+        sheet2["D2"] = f"=B2/(24*{num_a_rooms})"             # Utilization for A rooms
+        sheet2["D3"] = f"=B3/(24*{num_b_rooms})"             # Utilization for B rooms
+        sheet2["D4"] = f"=B4/(24*{num_c_rooms})"             # Utilization for C rooms
+        sheet2["D5"] = "=SUM(D2:D4)/3"                       # Average utilization
 
+        # Formulas for revenue
+        sheet2["B8"] = num_a_patients                        # Total A patients served
+        sheet2["B9"] = num_b_patients                        # Total B patients served
+        sheet2["B10"] = num_c_patients                      # Total C patients served
+        sheet2["D11"] = f"=SUM(D8:D10)"                    # Total Revenue
+        sheet2["D8"] = f"=B8*1000"                           # Revenue from A patients
+        sheet2["D9"] = f"=B9*600"                            # Revenue from B patients
+        sheet2["D10"] = f"=B10*250"                          # Revenue from C patients
 
+        # Formulas for waiting costs, LWBS, and harm
+        sheet2["B14"] = f"=SUM('Simulation Results'!E3:E26)"  # Total waiting A patients
+        sheet2["B15"] = f"=SUM('Simulation Results'!F3:F26)"  # Total waiting B patients
+        sheet2["B16"] = f"=SUM('Simulation Results'!G3:G26)"  # Total waiting C patients
+        sheet2["B17"] = f"=SUM('Simulation Results'!I3:I26)"  # Patients who left without being seen
+        sheet2["B18"] = f"=SUM('Simulation Results'!J3:J26)"  # Patients harmed while waiting
+        sheet2["D14"] = f"=B14*250"
+        sheet2["D15"] = f"=B15*100"
+        sheet2["D16"] = f"=B16*25"
+        sheet2["D17"] = f"=B17*200"
+        sheet2["D18"] = f"=B18*10000"
 
+        # Formulas for staffing costs
+        sheet2["B21"] = num_a_rooms
+        sheet2["B22"] = num_b_rooms
+        sheet2["B23"] = num_c_rooms
+        sheet2["D21"] = f"=B21*3900"
+        sheet2["D22"] = f"=B22*3000"
+        sheet2["D23"] = f"=B23*1600"
+        sheet2["D24"] = f"=SUM(D14:D23)"
 
+        # Formulas for Operating Profits
+        sheet2["D26"] = f"=D11-D24"
 
-
+        # Formulas for staffing costs
+        # Save the workbook
+        wb.save(file_name)
 
 
 if __name__ == "__main__":
