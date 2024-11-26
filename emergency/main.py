@@ -39,13 +39,15 @@ class RoomPlanner(tk.Tk):
         self.distribution_parameters = {}
         self.dragging_patient = None
 
-    def initialize_excel(self,file_name):
-        """Create an Excel file with the required headers."""
+    def initialize_excel(self, file_name):
+        """Create an Excel file with the required headers and two sheets."""
         wb = openpyxl.Workbook()
-        sheet = wb.active
-        sheet.title = "Simulation Results"
-
-        # Add Headers
+    
+        # Sheet 1: Simulation Results
+        sheet1 = wb.active
+        sheet1.title = "Simulation Results"
+    
+        # Add Headers for Sheet 1
         headers = [
             "Hour",
             "# of Busy Exam Rooms",
@@ -64,45 +66,93 @@ class RoomPlanner(tk.Tk):
             "A", "B", "C",
             None, None, None
         ]
-
-        sheet.append(headers)
-        sheet.append(sub_headers)
-
-        # Merge header cells
-        sheet.merge_cells("B1:D1")
-        sheet.merge_cells("E1:G1")
-        sheet.merge_cells("H1:H2")
-        sheet.merge_cells("I1:I2")
-        sheet.merge_cells("J1:J2")
-
+    
+        sheet1.append(headers)
+        sheet1.append(sub_headers)
+    
+        # Merge header cells for Sheet 1
+        sheet1.merge_cells("B1:D1")
+        sheet1.merge_cells("E1:G1")
+        sheet1.merge_cells("H1:H2")
+        sheet1.merge_cells("I1:I2")
+        sheet1.merge_cells("J1:J2")
+    
         # Center align the headers
         for col in range(1, 11):
-            sheet.cell(row=1, column=col).alignment = Alignment(horizontal="center", vertical="center")
-            sheet.cell(row=2, column=col).alignment = Alignment(horizontal="center", vertical="center")
-
-        # Save the file
+            sheet1.cell(row=1, column=col).alignment = Alignment(horizontal="center", vertical="center")
+            sheet1.cell(row=2, column=col).alignment = Alignment(horizontal="center", vertical="center")
+    
+        # Sheet 2: Profit and Costs
+        sheet2 = wb.create_sheet(title="Profit and Costs")
+    
+        # Add Headers for Sheet 2
+        sheet2_headers = [
+            ["ROOM UTILIZATION", "Value", "Calculation", "Score"],
+            ["Total patient-hours in A exam rooms", 0, "= (24 x # of A exam rooms)", 0],
+            ["Total patient-hours in B exam rooms", 0, "= (24 x # of B exam rooms)", 0],
+            ["Total patient-hours in C exam rooms", 0, "= (24 x # of C exam rooms)", 0],
+            ["Average overall utilization", 0, "= sum of above 3 values ÷ total rooms", 0],
+            [],
+            ["REVENUE", "", "", ""],
+            ["Total A patients served", 0, "x $1,000", 0],
+            ["Total B patients served", 0, "x $600", 0],
+            ["Total C patients served", 0, "x $250", 0],
+            ["TOTAL REVENUE", "", "", 0],
+            [],
+            ["COSTS", "", "", ""],
+            ["Total A patient-hours in waiting room", 0, "x $250", 0],
+            ["Total B patient-hours in waiting room", 0, "x $100", 0],
+            ["Total C patient-hours in waiting room", 0, "x $25", 0],
+            ["Total patients LWBS", 0, "x $200", 0],
+            ["Total patients harmed while waiting", 0, "x $10,000", 0],
+            [],
+            ["Staffing costs:", "", "", ""],
+            ["# of A exam rooms", 0, "x $3,900", 0],
+            ["# of B exam rooms", 0, "x $3,000", 0],
+            ["# of C exam rooms", 0, "x $1,600", 0],
+            ["TOTAL COSTS", "", "", 0],
+            [],
+            ["OPERATING PROFITS", "", "", 0]
+        ]
+    
+        for row in sheet2_headers:
+            sheet2.append(row)
+    
+        # Format and align cells for Sheet 2
+        for row in sheet2.iter_rows(min_row=1, max_row=sheet2.max_row, max_col=4):
+            for cell in row:
+                if cell.value:  # Apply alignment only to non-empty cells
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+        # Save the workbook
         wb.save(file_name)
-
-    def update_excel(self,file_name, hour, busy_rooms, waiting_patients, roomed_above_triage, left_without_being_seen, harmed_from_neglect):
-        """Update the Excel sheet with the results for the current hour."""
+    
+    def update_excel(self, file_name, hour, busy_rooms, waiting_patients, roomed_above_triage, left_without_being_seen, harmed_from_neglect):
+        """Update only the Simulation Results sheet in the Excel file."""
         wb = openpyxl.load_workbook(file_name)
-        sheet = wb.active
-
+        
+        # Explicitly target the "Simulation Results" sheet
+        if "Simulation Results" in wb.sheetnames:
+            sheet = wb["Simulation Results"]
+        else:
+            raise ValueError("Simulation Results sheet not found in the workbook.")
+    
         # Prepare the data for the row
         row_data = [
             hour,
-            busy_rooms["A"], busy_rooms["B"], busy_rooms["C"],
-            waiting_patients["A"], waiting_patients["B"], waiting_patients["C"],
+            busy_rooms.get("A", 0), busy_rooms.get("B", 0), busy_rooms.get("C", 0),
+            waiting_patients.get("A", 0), waiting_patients.get("B", 0), waiting_patients.get("C", 0),
             roomed_above_triage,
             left_without_being_seen,
             harmed_from_neglect
         ]
-
-        # Append the row
+    
+        # Append the row to the "Simulation Results" sheet
         sheet.append(row_data)
-
+    
         # Save the updated file
         wb.save(file_name)
+
 
 
     def create_input_fields(self):
