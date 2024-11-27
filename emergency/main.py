@@ -375,8 +375,12 @@ class RoomPlanner(tk.Tk):
             }
         else:
             self.distribution_type = 'Poisson'
-            self.auto_solve_var = "Option 1: Exact Room Type"
+            # self.auto_solve_var = "Option 1: Exact Room Type"
+            self.auto_solve_var = "Option 2: Any Available Room"
             self.distribution_parameters = {'A': {'lambda': 0.875}, 'B': {'lambda': 1.58333333333}, 'C': {'lambda': 1.70833333333}}
+            # USE IF DISTRIBUTION TYPE IS NORMAL self.distribution_parameters = {'A': {'mean': 0.875,'std_dev': 1}, 'B': {'mean': 1.58333333333,'std_dev': 1}, 'C': {'mean': 1.70833333333,'std_dev': 1}}
+            # USE IF DISTRIBUTION TYPE IS UNIFORM self.distribution_parameters = {'A': {'lower_bound': 0,'upper_bound': 2}, 'B': {'lower_bound': 0,'upper_bound': 3}, 'C': {'lower_bound': 0,'upper_bound': 4}}
+
             print('potato')
             self.start_simulation()
             
@@ -1043,8 +1047,8 @@ class RoomPlanner(tk.Tk):
             print(f"Running Simulation {sim + 1} of {num_simulations}")
             
             # Reset state and start a single simulation
-            self.reset_simulation_variables(5,5,4)
-            self.fast_forward_simulation(auto_solve_option="Option 1: Exact Room Type")
+            self.reset_simulation_variables(5,4,5)
+            self.fast_forward_simulation(auto_solve_option="Option 2: Any Available Room")
 
             # Extract results after finalizing the simulation
             results = self.extract_results_from_excel("simulation_results.xlsx")
@@ -1163,10 +1167,10 @@ class RoomPlanner(tk.Tk):
         #         "The simulation has completed. You can review the results in the Excel file."
         #     )
         # self.canvas.delete("all")
-        # self.room_widgets.clear()
-        # self.create_waiting_room()
-        # self.create_grid()
-        # self.snap_rooms_to_grid()
+        self.room_widgets.clear()
+        self.create_waiting_room()
+        self.create_grid()
+        self.snap_rooms_to_grid()
         if self.batch_mode == False:
             self.show_distribution_options()
         else:
