@@ -35,6 +35,8 @@ class RoomPlanner(tk.Tk):
         self.b_count = 0
         self.c_count = 0
 
+        self.iteration_count = 0
+
         self.input_frame = tk.Frame(self)
         self.input_frame.pack(pady=10)
         self.create_input_fields()
@@ -374,7 +376,7 @@ class RoomPlanner(tk.Tk):
         else:
             self.distribution_type = 'Poisson'
             self.auto_solve_var = "Option 1: Exact Room Type"
-            self.distribution_parameters = {'A': {'lambda': 2.0}, 'B': {'lambda': 2.0}, 'C': {'lambda': 2.0}}
+            self.distribution_parameters = {'A': {'lambda': 0.875}, 'B': {'lambda': 1.58333333333}, 'C': {'lambda': 1.70833333333}}
             print('potato')
             self.start_simulation()
             
@@ -415,6 +417,9 @@ class RoomPlanner(tk.Tk):
             widget.destroy()
         if not hasattr(self, "time_label"):
             self.time_label = tk.Label(self.input_frame, text=self.format_time_label(), font=("Helvetica", 16))
+            self.time_label.pack(pady=10)
+        if self.batch_mode == True:
+            self.time_label = tk.Label(self.input_frame, text='hi', font=("Helvetica", 16))
             self.time_label.pack(pady=10)
         self.time_label.config(text=self.format_time_label())
 
@@ -859,6 +864,8 @@ class RoomPlanner(tk.Tk):
                 "The simulation has completed. You can review the results in the Excel file."
             )
         self.clear_patients()
+        if self.iteration_count == 0:
+            self.run_batch_simulations(num_simulations=2)
         
     def clear_patients(self):
         """Clear all patient widgets and reset patient-related data."""
@@ -868,62 +875,303 @@ class RoomPlanner(tk.Tk):
         
         # Reset the list of patient widgets
         self.patient_widgets = []
+    # def finalize_sheet_two(self, file_name, num_a_rooms, num_b_rooms, num_c_rooms, num_a_patients, num_b_patients, num_c_patients):
+    #     """Finalize the Profit and Costs sheet with calculations after the simulation."""
+    #     wb = openpyxl.load_workbook(file_name)
+    #     sheet1 = wb["Simulation Results"]
+    #     sheet2 = wb["Profit and Costs"]
+
+    #     # Formulas for room utilization
+    #     sheet2["B2"] = f"=SUM('Simulation Results'!B3:B26)"  # Total A room hours
+    #     sheet2["B3"] = f"=SUM('Simulation Results'!C3:C26)"  # Total B room hours
+    #     sheet2["B4"] = f"=SUM('Simulation Results'!D3:D26)"  # Total C room hours
+    #     sheet2["B5"] = f"=SUM(B2:B4)"                        # Total room hours
+    #     sheet2["D2"] = f"=B2/(24*{num_a_rooms})"             # Utilization for A rooms
+    #     sheet2["D3"] = f"=B3/(24*{num_b_rooms})"             # Utilization for B rooms
+    #     sheet2["D4"] = f"=B4/(24*{num_c_rooms})"             # Utilization for C rooms
+    #     sheet2["D5"] = "=SUM(D2:D4)/3"                       # Average utilization
+
+    #     # Formulas for revenue
+    #     sheet2["B8"] = num_a_patients                        # Total A patients served
+    #     sheet2["B9"] = num_b_patients                        # Total B patients served
+    #     sheet2["B10"] = num_c_patients                      # Total C patients served
+    #     sheet2["D11"] = f"=SUM(D8:D10)"                    # Total Revenue
+    #     sheet2["D8"] = f"=B8*1000"                           # Revenue from A patients
+    #     sheet2["D9"] = f"=B9*600"                            # Revenue from B patients
+    #     sheet2["D10"] = f"=B10*250"                          # Revenue from C patients
+
+    #     # Formulas for waiting costs, LWBS, and harm
+    #     sheet2["B14"] = f"=SUM('Simulation Results'!E3:E26)"  # Total waiting A patients
+    #     sheet2["B15"] = f"=SUM('Simulation Results'!F3:F26)"  # Total waiting B patients
+    #     sheet2["B16"] = f"=SUM('Simulation Results'!G3:G26)"  # Total waiting C patients
+    #     sheet2["B17"] = f"=SUM('Simulation Results'!I3:I26)"  # Patients who left without being seen
+    #     sheet2["B18"] = f"=SUM('Simulation Results'!J3:J26)"  # Patients harmed while waiting
+    #     sheet2["D14"] = f"=B14*250"
+    #     sheet2["D15"] = f"=B15*100"
+    #     sheet2["D16"] = f"=B16*25"
+    #     sheet2["D17"] = f"=B17*200"
+    #     sheet2["D18"] = f"=B18*10000"
+
+    #     # Formulas for staffing costs
+    #     sheet2["B21"] = num_a_rooms
+    #     sheet2["B22"] = num_b_rooms
+    #     sheet2["B23"] = num_c_rooms
+    #     sheet2["D21"] = f"=B21*3900"
+    #     sheet2["D22"] = f"=B22*3000"
+    #     sheet2["D23"] = f"=B23*1600"
+    #     sheet2["D24"] = f"=SUM(D14:D23)"
+
+    #     # Formulas for Operating Profits
+    #     sheet2["D26"] = f"=D11-D24"
+
+    #     # Formulas for staffing costs
+    #     # Save the workbook
+    #     wb.save(file_name)
+    #     wb.close()
     def finalize_sheet_two(self, file_name, num_a_rooms, num_b_rooms, num_c_rooms, num_a_patients, num_b_patients, num_c_patients):
-        """Finalize the Profit and Costs sheet with calculations after the simulation."""
+        """Finalize the Profit and Costs sheet with calculated values after the simulation."""
         wb = openpyxl.load_workbook(file_name)
         sheet1 = wb["Simulation Results"]
         sheet2 = wb["Profit and Costs"]
 
-        # Formulas for room utilization
-        sheet2["B2"] = f"=SUM('Simulation Results'!B3:B26)"  # Total A room hours
-        sheet2["B3"] = f"=SUM('Simulation Results'!C3:C26)"  # Total B room hours
-        sheet2["B4"] = f"=SUM('Simulation Results'!D3:D26)"  # Total C room hours
-        sheet2["B5"] = f"=SUM(B2:B4)"                        # Total room hours
-        sheet2["D2"] = f"=B2/(24*{num_a_rooms})"             # Utilization for A rooms
-        sheet2["D3"] = f"=B3/(24*{num_b_rooms})"             # Utilization for B rooms
-        sheet2["D4"] = f"=B4/(24*{num_c_rooms})"             # Utilization for C rooms
-        sheet2["D5"] = "=SUM(D2:D4)/3"                       # Average utilization
+        # Calculate room utilization
+        total_a_room_hours = sum(sheet1[f"B{row}"].value or 0 for row in range(3, 27))
+        total_b_room_hours = sum(sheet1[f"C{row}"].value or 0 for row in range(3, 27))
+        total_c_room_hours = sum(sheet1[f"D{row}"].value or 0 for row in range(3, 27))
+        total_room_hours = total_a_room_hours + total_b_room_hours + total_c_room_hours
 
-        # Formulas for revenue
-        sheet2["B8"] = num_a_patients                        # Total A patients served
-        sheet2["B9"] = num_b_patients                        # Total B patients served
-        sheet2["B10"] = num_c_patients                      # Total C patients served
-        sheet2["D11"] = f"=SUM(D8:D10)"                    # Total Revenue
-        sheet2["D8"] = f"=B8*1000"                           # Revenue from A patients
-        sheet2["D9"] = f"=B9*600"                            # Revenue from B patients
-        sheet2["D10"] = f"=B10*250"                          # Revenue from C patients
+        utilization_a = total_a_room_hours / (24 * num_a_rooms) if num_a_rooms else 0
+        utilization_b = total_b_room_hours / (24 * num_b_rooms) if num_b_rooms else 0
+        utilization_c = total_c_room_hours / (24 * num_c_rooms) if num_c_rooms else 0
+        average_utilization = (utilization_a + utilization_b + utilization_c) / 3
 
-        # Formulas for waiting costs, LWBS, and harm
-        sheet2["B14"] = f"=SUM('Simulation Results'!E3:E26)"  # Total waiting A patients
-        sheet2["B15"] = f"=SUM('Simulation Results'!F3:F26)"  # Total waiting B patients
-        sheet2["B16"] = f"=SUM('Simulation Results'!G3:G26)"  # Total waiting C patients
-        sheet2["B17"] = f"=SUM('Simulation Results'!I3:I26)"  # Patients who left without being seen
-        sheet2["B18"] = f"=SUM('Simulation Results'!J3:J26)"  # Patients harmed while waiting
-        sheet2["D14"] = f"=B14*250"
-        sheet2["D15"] = f"=B15*100"
-        sheet2["D16"] = f"=B16*25"
-        sheet2["D17"] = f"=B17*200"
-        sheet2["D18"] = f"=B18*10000"
+        # Write calculated utilization values
+        sheet2["B2"] = total_a_room_hours
+        sheet2["B3"] = total_b_room_hours
+        sheet2["B4"] = total_c_room_hours
+        sheet2["B5"] = total_room_hours
+        sheet2["D2"] = utilization_a
+        sheet2["D3"] = utilization_b
+        sheet2["D4"] = utilization_c
+        sheet2["D5"] = average_utilization
 
-        # Formulas for staffing costs
+        # Calculate revenue
+        revenue_a = num_a_patients * 1000
+        revenue_b = num_b_patients * 600
+        revenue_c = num_c_patients * 250
+        total_revenue = revenue_a + revenue_b + revenue_c
+
+        # Write revenue values
+        sheet2["B8"] = num_a_patients
+        sheet2["B9"] = num_b_patients
+        sheet2["B10"] = num_c_patients
+        sheet2["D8"] = revenue_a
+        sheet2["D9"] = revenue_b
+        sheet2["D10"] = revenue_c
+        sheet2["D11"] = total_revenue
+
+        # Calculate waiting costs
+        total_waiting_a = sum(sheet1[f"E{row}"].value or 0 for row in range(3, 27))
+        total_waiting_b = sum(sheet1[f"F{row}"].value or 0 for row in range(3, 27))
+        total_waiting_c = sum(sheet1[f"G{row}"].value or 0 for row in range(3, 27))
+        patients_left = sum(sheet1[f"I{row}"].value or 0 for row in range(3, 27))
+        patients_harmed = sum(sheet1[f"J{row}"].value or 0 for row in range(3, 27))
+
+        cost_waiting_a = total_waiting_a * 250
+        cost_waiting_b = total_waiting_b * 100
+        cost_waiting_c = total_waiting_c * 25
+        cost_left = patients_left * 200
+        cost_harmed = patients_harmed * 10000
+
+        # Write waiting costs
+        sheet2["B14"] = total_waiting_a
+        sheet2["B15"] = total_waiting_b
+        sheet2["B16"] = total_waiting_c
+        sheet2["B17"] = patients_left
+        sheet2["B18"] = patients_harmed
+        sheet2["D14"] = cost_waiting_a
+        sheet2["D15"] = cost_waiting_b
+        sheet2["D16"] = cost_waiting_c
+        sheet2["D17"] = cost_left
+        sheet2["D18"] = cost_harmed
+
+        # Calculate staffing costs
+        staffing_cost_a = num_a_rooms * 3900
+        staffing_cost_b = num_b_rooms * 3000
+        staffing_cost_c = num_c_rooms * 1600
+        total_costs = (
+            cost_waiting_a
+            + cost_waiting_b
+            + cost_waiting_c
+            + cost_left
+            + cost_harmed
+            + staffing_cost_a
+            + staffing_cost_b
+            + staffing_cost_c
+        )
+
+        # Write staffing costs
         sheet2["B21"] = num_a_rooms
         sheet2["B22"] = num_b_rooms
         sheet2["B23"] = num_c_rooms
-        sheet2["D21"] = f"=B21*3900"
-        sheet2["D22"] = f"=B22*3000"
-        sheet2["D23"] = f"=B23*1600"
-        sheet2["D24"] = f"=SUM(D14:D23)"
+        sheet2["D21"] = staffing_cost_a
+        sheet2["D22"] = staffing_cost_b
+        sheet2["D23"] = staffing_cost_c
+        sheet2["D24"] = total_costs
 
-        # Formulas for Operating Profits
-        sheet2["D26"] = f"=D11-D24"
+        # Calculate operating profits
+        operating_profit = total_revenue - total_costs
+        sheet2["D26"] = operating_profit
 
-        # Formulas for staffing costs
         # Save the workbook
         wb.save(file_name)
 
+    def run_batch_simulations(self, num_simulations=2):
+        """Run multiple simulations in batch mode."""
+        batch_results = {
+            "utilization": [],
+            "revenue": [],
+            "costs": [],
+            "profits": []
+        }
+        self.iteration_count += 1
 
+        for sim in range(num_simulations):
+            print(f"Running Simulation {sim + 1} of {num_simulations}")
+            
+            # Reset state and start a single simulation
+            self.reset_simulation_variables(5,5,4)
+            self.fast_forward_simulation(auto_solve_option="Option 1: Exact Room Type")
+
+            # Extract results after finalizing the simulation
+            results = self.extract_results_from_excel("simulation_results.xlsx")
+            batch_results["utilization"].append(results["average_utilization"])
+            batch_results["revenue"].append(results["total_revenue"])
+            batch_results["costs"].append(results["total_cost"])
+            batch_results["profits"].append(results["operating_profit"])
+
+        print(batch_results["utilization"])
+        print(batch_results["costs"])
+        print(batch_results["revenue"])
+        print(batch_results["profits"])
+        # Calculate averages
+        averages = {
+            "average_utilization": sum(batch_results["utilization"]) / num_simulations,
+            "average_revenue": sum(batch_results["revenue"]) / num_simulations,
+            "average_cost": sum(batch_results["costs"]) / num_simulations,
+            "average_profit": sum(batch_results["profits"]) / num_simulations,
+        }
+
+        print("Batch simulations complete.")
+        print(f"Averages: {averages}")
+        return averages
+
+
+    def reset_simulation_variables(self,a_count,b_count,c_count):
+        """Reset all variables and UI elements to prepare for a new simulation."""
+        # Reinitialize key variables
+        self.rooms = {}
+        self.room_widgets = []
+        self.grid_size = 4
+        self.patient_generator = PatientGenerator()
+        self.total_a_patients = 0
+        self.total_b_patients = 0
+        self.total_c_patients = 0
+        self.total_revenue = 0
+        self.total_waiting_cost = 0
+        self.total_lwbs_cost = 0
+        self.total_harmed_cost = 0
+        self.total_staffing_cost = 0
+        self.total_costs = 0
+        self.average_utilization = 0
+        self.a_count = a_count
+        self.b_count = b_count
+        self.c_count = c_count
+        self.current_time = datetime.datetime.strptime("06:00", "%H:%M")
+        self.distribution_type = None
+        self.distribution_parameters = {}
+        self.dragging_patient = None
+
+        # Recreate UI elements
+        self.input_frame.destroy()  # Destroy and recreate input frame
+        self.input_frame = tk.Frame(self)
+        self.input_frame.pack(pady=10)
+        self.create_input_fields_batch()
+
+        # self.canvas.destroy()  # Destroy and recreate canvas
+        # self.canvas = tk.Canvas(self, width=800, height=600, bg="white")
+        # self.canvas.pack(fill="both", expand=True)
+        # self.grid_cells = []  # Reset grid cells
+        # self.initialize_grid()
+
+        # Reinitialize Excel file (optional, if you want a fresh file per simulation)
+        self.initialize_excel("simulation_results.xlsx")
+
+        
+
+
+    def extract_results_from_excel(self, file_name):
+        """Extract results from the finalized Excel file."""
+        wb = openpyxl.load_workbook(file_name)
+        sheet = wb["Profit and Costs"]
+
+        # # Open the workbook in Excel
+        # wb = xw.Book(file_name)
+        # sheet = wb.sheets["Profit and Costs"]
+
+        # Fetch values from the finalized Excel sheet
+        average_utilization = sheet["D5"].value  # Assuming this cell holds average utilization
+        total_revenue = sheet["D11"].value
+        total_cost = sheet["D24"].value
+        operating_profit = sheet["D26"].value
+        # Close the workbook
+        wb.close()
+        return {
+            "average_utilization": average_utilization,
+            "total_revenue": total_revenue,
+            "total_cost": total_cost,
+            "operating_profit": operating_profit,
+        }
+    def create_input_fields_batch(self):
+        tk.Label(self.input_frame, text="Number of A Rooms:").grid(row=0, column=0)
+        self.a_count_entry = tk.Entry(self.input_frame)
+        self.a_count_entry.grid(row=0, column=1)
+
+        tk.Label(self.input_frame, text="Number of B Rooms:").grid(row=1, column=0)
+        self.b_count_entry = tk.Entry(self.input_frame)
+        self.b_count_entry.grid(row=1, column=1)
+
+        tk.Label(self.input_frame, text="Number of C Rooms:").grid(row=2, column=0)
+        self.c_count_entry = tk.Entry(self.input_frame)
+        self.c_count_entry.grid(row=2, column=1)
+
+        self.generate_rooms_batch()
+
+    def generate_rooms_batch(self):
+        """Generate rooms and validate selection before proceeding."""
+        room_manager = RoomManager()
+        self.rooms = room_manager.generate_rooms(self.a_count, self.b_count, self.c_count)
+
+    # Validate and confirm before proceeding
+        if not self.confirm_room_selection():
+            return
+        messagebox.showinfo(
+                "Simulation Complete",
+                "The simulation has completed. You can review the results in the Excel file."
+            )
+        # self.canvas.delete("all")
+        # self.room_widgets.clear()
+        # self.create_waiting_room()
+        # self.create_grid()
+        # self.snap_rooms_to_grid()
+        if self.batch_mode == False:
+            self.show_distribution_options()
+        else:
+            self.confirm_distribution()
 
 if __name__ == "__main__":
     app = RoomPlanner(batch_mode=True)
+    # averages = app.run_batch_simulations(num_simulations=30)
+    # print("Simulation Averages:", averages)
     app.mainloop()
     
