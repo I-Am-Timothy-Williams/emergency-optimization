@@ -857,13 +857,16 @@ class RoomPlanner(tk.Tk):
             num_b_patients=self.total_b_patients,
             num_c_patients=self.total_c_patients,
         )
-        if self.batch_mode == False:
+        # if self.batch_mode == False:
             # Display a summary message at the end
-            messagebox.showinfo(
-                "Simulation Complete",
-                "The simulation has completed. You can review the results in the Excel file."
-            )
+            # messagebox.showinfo(
+            #     "Simulation Complete",
+            #     "The simulation has completed. You can review the results in the Excel file."
+            # )
         self.clear_patients()
+        self.total_a_patients=0
+        self.total_b_patients=0
+        self.total_c_patients=0
         if self.iteration_count == 0:
             self.run_batch_simulations(num_simulations=2)
         
@@ -935,9 +938,9 @@ class RoomPlanner(tk.Tk):
         sheet2 = wb["Profit and Costs"]
 
         # Calculate room utilization
-        total_a_room_hours = sum(sheet1[f"B{row}"].value or 0 for row in range(3, 27))
-        total_b_room_hours = sum(sheet1[f"C{row}"].value or 0 for row in range(3, 27))
-        total_c_room_hours = sum(sheet1[f"D{row}"].value or 0 for row in range(3, 27))
+        total_a_room_hours = sum(sheet1[f"B{row}"].value or 0 for row in range(3, 26))
+        total_b_room_hours = sum(sheet1[f"C{row}"].value or 0 for row in range(3, 26))
+        total_c_room_hours = sum(sheet1[f"D{row}"].value or 0 for row in range(3, 26))
         total_room_hours = total_a_room_hours + total_b_room_hours + total_c_room_hours
 
         utilization_a = total_a_room_hours / (24 * num_a_rooms) if num_a_rooms else 0
@@ -1155,10 +1158,10 @@ class RoomPlanner(tk.Tk):
     # Validate and confirm before proceeding
         if not self.confirm_room_selection():
             return
-        messagebox.showinfo(
-                "Simulation Complete",
-                "The simulation has completed. You can review the results in the Excel file."
-            )
+        # messagebox.showinfo(
+        #         "Simulation Complete",
+        #         "The simulation has completed. You can review the results in the Excel file."
+        #     )
         # self.canvas.delete("all")
         # self.room_widgets.clear()
         # self.create_waiting_room()
