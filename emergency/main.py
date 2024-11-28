@@ -6,7 +6,9 @@ from roomgenerator import *
 from patientgenerator import PatientGenerator
 import tkinter.messagebox as messagebox  # Add this import at the top of main.py
 import openpyxl
+import csv
 from openpyxl.styles import Alignment
+from itertools import product
 
 class RoomPlanner(tk.Tk):
     def __init__(self,batch_mode=False):
@@ -321,7 +323,7 @@ class RoomPlanner(tk.Tk):
         self.auto_solve_var = tk.StringVar(self)
         self.auto_solve_var.set("None")  # Default option
         auto_solve_menu = tk.OptionMenu(
-            self.input_frame, self.auto_solve_var, "None", "Option 1: Exact Room Type", "Option 2: Any Available Room"
+            self.input_frame, self.auto_solve_var, "None", "Option 1: Exact Room Type", "Option 2: Any Available Room", "Option 3", "Option 4"
         )
         auto_solve_menu.pack()
 
@@ -376,7 +378,9 @@ class RoomPlanner(tk.Tk):
         else:
             self.distribution_type = 'Poisson'
             # self.auto_solve_var = "Option 1: Exact Room Type"
-            self.auto_solve_var = "Option 2: Any Available Room"
+            # self.auto_solve_var = "Option 2: Any Available Room"
+            # self.auto_solve_var = "Option 3"
+            self.auto_solve_var = "Option 3"
             self.distribution_parameters = {'A': {'lambda': 0.875}, 'B': {'lambda': 1.58333333333}, 'C': {'lambda': 1.70833333333}}
             # USE IF DISTRIBUTION TYPE IS NORMAL self.distribution_parameters = {'A': {'mean': 0.875,'std_dev': 1}, 'B': {'mean': 1.58333333333,'std_dev': 1}, 'C': {'mean': 1.70833333333,'std_dev': 1}}
             # USE IF DISTRIBUTION TYPE IS UNIFORM self.distribution_parameters = {'A': {'lower_bound': 0,'upper_bound': 2}, 'B': {'lower_bound': 0,'upper_bound': 3}, 'C': {'lower_bound': 0,'upper_bound': 4}}
@@ -441,7 +445,7 @@ class RoomPlanner(tk.Tk):
             auto_solve_option = self.auto_solve_var.get()
         else:
             auto_solve_option = self.auto_solve_var
-        if auto_solve_option in ["Option 1: Exact Room Type", "Option 2: Any Available Room"]:
+        if auto_solve_option in ["Option 1: Exact Room Type", "Option 2: Any Available Room", "Option 3", "Option 4"]:
             self.fast_forward_simulation(auto_solve_option)
         else:
             # Add a "Confirm Choices" button for manual play
@@ -545,6 +549,139 @@ class RoomPlanner(tk.Tk):
             # Exit loop if no placements were made this pass
             if not placement_made:
                 break
+
+    def auto_solve_closest_level_room(self):
+        """Automatically assign patients to rooms by their level, assigning to the closest higher level if their level is full."""
+        placement_made = True  # Track whether any placements were made this pass
+
+        while placement_made:
+            placement_made = False  # Reset for this iteration
+
+            for patient_icon in self.patient_widgets:
+                tags = self.canvas.gettags(patient_icon)
+                patient_level = next((t for t in tags if t in ["A", "B", "C"]), None)
+
+                print(f"Processing patient {patient_icon} with level {patient_level} and tags {tags}")
+                if not patient_level:
+                    continue  # Skip if patient doesn't have a valid level tag
+
+                # Find an available room, prioritizing by level
+                available_room = None
+                for room_name, room_data in self.rooms.items():  # Sort ensures consistent level order
+                    room_level = room_name[0]
+                    print(room_data)
+                    if room_level >= patient_level and not room_data["occupied"]:
+                        available_room = room_name
+                        print(f"Found available room {available_room} for patient {patient_icon}")
+                        break
+
+                if available_room:
+                    # Assign the patient to the room
+                    room_rects = self.canvas.find_withtag(available_room)
+                    if room_rects:
+                        room_coords = self.canvas.coords(room_rects[0])
+                        print(f"Room {available_room} coordinates: {room_coords}")
+                        self.canvas.coords(patient_icon, room_coords[0] + 10, room_coords[1] + 10, room_coords[0] + 30, room_coords[1] + 30)
+                        self.rooms[available_room]["occupied"] = True  # Mark the room as occupied
+                        print(f"Placing patient {patient_level} in room {available_room}")
+
+                        # Ensure the patient's tags are correct
+                        current_tags = set(tags)
+                        hours_left_tag = next((t for t in tags if t.startswith("hours_left_")), None)
+                        if not hours_left_tag:
+                            hours_left_tag = "hours_left_1"  # Default hours_left if missing
+                            current_tags.add(hours_left_tag)
+                        
+                        # Reapply the updated tags to the patient
+                        self.canvas.itemconfig(patient_icon, tags=tuple(current_tags))
+
+                        # Remove the patient from the waiting room
+                        self.patient_widgets.remove(patient_icon)
+                        placement_made = True
+                        break  # Move to the next patient
+            # Exit loop if no placements were made this pass
+            if not placement_made:
+                print("No placements made in this pass.")
+                break
+
+    def assign_patients_with_thresholds(self):
+        """
+        Assign patients to rooms based on their level:
+        - A goes to A rooms only.
+        - B goes to B rooms primarily, can go to A rooms if 75% of A rooms are available and no B rooms are free.
+        - C goes to C rooms primarily, can go to B rooms if 50% of B rooms are available and no C rooms are free,
+        or to A rooms if 50% of A rooms are available and it can't go into a B or C room.
+        """
+        def count_available_rooms(level):
+            """Count the available rooms for a specific level."""
+            return sum(1 for room_name, room_data in self.rooms.items() if room_name[0] == level and not room_data["occupied"])
+
+        for patient_icon in self.patient_widgets[:]:  # Use a copy of the list to modify it during iteration
+            tags = self.canvas.gettags(patient_icon)
+            patient_level = next((t for t in tags if t in ["A", "B", "C"]), None)
+            if not patient_level:
+                continue  # Skip if the patient doesn't have a valid level
+
+            assigned_room = None
+
+            if patient_level == "A":
+                # A patients go into A rooms only
+                assigned_room = next(
+                    (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "A" and not room_data["occupied"]),
+                    None,
+                )
+
+            elif patient_level == "B":
+                # B patients prioritize B rooms
+                assigned_room = next(
+                    (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "B" and not room_data["occupied"]),
+                    None,
+                )
+                # Fallback to A rooms if 75% of A rooms are available and no B rooms are free
+                if not assigned_room:
+                    total_a_rooms = sum(1 for room_name in self.rooms if room_name[0] == "A")
+                    available_a_rooms = count_available_rooms("A")
+                    if available_a_rooms / total_a_rooms >= 0.75:
+                        assigned_room = next(
+                            (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "A" and not room_data["occupied"]),
+                            None,
+                        )
+
+            elif patient_level == "C":
+                # C patients prioritize C rooms
+                assigned_room = next(
+                    (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "C" and not room_data["occupied"]),
+                    None,
+                )
+                # Fallback to B rooms if 50% of B rooms are available and no C rooms are free
+                if not assigned_room:
+                    total_b_rooms = sum(1 for room_name in self.rooms if room_name[0] == "B")
+                    available_b_rooms = count_available_rooms("B")
+                    if available_b_rooms / total_b_rooms >= 0.50:
+                        assigned_room = next(
+                            (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "B" and not room_data["occupied"]),
+                            None,
+                        )
+                # Fallback to A rooms if 50% of A rooms are available and no B or C rooms are free
+                if not assigned_room:
+                    total_a_rooms = sum(1 for room_name in self.rooms if room_name[0] == "A")
+                    available_a_rooms = count_available_rooms("A")
+                    if available_a_rooms / total_a_rooms >= 0.50:
+                        assigned_room = next(
+                            (room_name for room_name, room_data in self.rooms.items() if room_name[0] == "A" and not room_data["occupied"]),
+                            None,
+                        )
+
+            # If a room is found, assign the patient
+            if assigned_room:
+                room_rects = self.canvas.find_withtag(assigned_room)
+                if room_rects:
+                    room_coords = self.canvas.coords(room_rects[0])
+                    self.canvas.coords(patient_icon, room_coords[0] + 10, room_coords[1] + 10, room_coords[0] + 30, room_coords[1] + 30)
+                    self.rooms[assigned_room]["occupied"] = True
+                    print(f"Assigned patient {patient_level} to room {assigned_room}")
+                    # Remove the patient from the waiting list
+                    self.patient_widgets.remove(patient_icon)
 
 
     def confirm_choices(self):
@@ -843,7 +980,10 @@ class RoomPlanner(tk.Tk):
                 self.auto_solve_exact_room_type()
             elif auto_solve_option == "Option 2: Any Available Room":
                 self.auto_solve_any_available_room()
-
+            elif auto_solve_option == "Option 3":
+                self.auto_solve_closest_level_room()
+            elif auto_solve_option == "Option 4":
+                self.assign_patients_with_thresholds()
             # Ensure `confirm_choices` is called to handle healing and progression
             self.confirm_choices()
 
@@ -872,7 +1012,13 @@ class RoomPlanner(tk.Tk):
         self.total_b_patients=0
         self.total_c_patients=0
         if self.iteration_count == 0:
-            self.run_batch_simulations(num_simulations=2)
+            room_combinations = [
+    (3,5,7),(3,4,4),(3,5,4),(3,6,3),(3,4,3),(3,5,5),(3,8,3),(3,4,5),(3,5,6),(3,4,8),
+    (3,5,3),(3,4,6),(3,6,7),(3,7,4),(3,7,5),(3,6,5),(3,4,9),(3,3,6),(3,3,4),(3,3,3),
+    (3,3,5),(3,3,9),(3,3,8),(3,3,10),(5,7,0)
+]
+
+            self.run_batch_simulations(room_combinations, num_simulations_per_combination=15)
         
     def clear_patients(self):
         """Clear all patient widgets and reset patient-related data."""
@@ -1033,45 +1179,74 @@ class RoomPlanner(tk.Tk):
         # Save the workbook
         wb.save(file_name)
 
-    def run_batch_simulations(self, num_simulations=2):
-        """Run multiple simulations in batch mode."""
-        batch_results = {
-            "utilization": [],
-            "revenue": [],
-            "costs": [],
-            "profits": []
-        }
+
+    def run_batch_simulations(self, room_combinations, num_simulations_per_combination=2, output_file="simulation_results.csv"):
+        """
+        Run multiple simulations for each combination of room staffing levels and save results to a CSV file.
+        
+        :param room_combinations: List of tuples containing room staffing levels (A, B, C).
+        :param num_simulations_per_combination: Number of simulations to run per combination.
+        :param output_file: File path to save the simulation results (CSV format).
+        """
+        batch_results = []
+
         self.iteration_count += 1
 
-        for sim in range(num_simulations):
-            print(f"Running Simulation {sim + 1} of {num_simulations}")
+        # Open CSV file for writing results
+        with open(output_file, mode='w', newline='') as file:
+            writer = csv.writer(file)
             
-            # Reset state and start a single simulation
-            self.reset_simulation_variables(5,4,5)
-            self.fast_forward_simulation(auto_solve_option="Option 2: Any Available Room")
+            # Write header row
+            writer.writerow(["A", "B", "C", "average_utilization", "average_revenue", "average_cost", "average_profit"])
+            
+            for combination in room_combinations:
+                print(f"Running simulations for room combination: A={combination[0]}, B={combination[1]}, C={combination[2]}")
+                
+                combination_results = {
+                    "combination": combination,
+                    "utilization": [],
+                    "revenue": [],
+                    "costs": [],
+                    "profits": []
+                }
 
-            # Extract results after finalizing the simulation
-            results = self.extract_results_from_excel("simulation_results.xlsx")
-            batch_results["utilization"].append(results["average_utilization"])
-            batch_results["revenue"].append(results["total_revenue"])
-            batch_results["costs"].append(results["total_cost"])
-            batch_results["profits"].append(results["operating_profit"])
+                for sim in range(num_simulations_per_combination):
+                    print(f"  Simulation {sim + 1} of {num_simulations_per_combination}")
+                    
+                    # Reset state and start a single simulation for the current combination
+                    self.reset_simulation_variables(*combination)
+                    self.fast_forward_simulation(auto_solve_option="Option 3")
 
-        print(batch_results["utilization"])
-        print(batch_results["costs"])
-        print(batch_results["revenue"])
-        print(batch_results["profits"])
-        # Calculate averages
-        averages = {
-            "average_utilization": sum(batch_results["utilization"]) / num_simulations,
-            "average_revenue": sum(batch_results["revenue"]) / num_simulations,
-            "average_cost": sum(batch_results["costs"]) / num_simulations,
-            "average_profit": sum(batch_results["profits"]) / num_simulations,
-        }
+                    # Extract results after finalizing the simulation
+                    results = self.extract_results_from_excel("simulation_results.xlsx")
+                    combination_results["utilization"].append(results["average_utilization"])
+                    combination_results["revenue"].append(results["total_revenue"])
+                    combination_results["costs"].append(results["total_cost"])
+                    combination_results["profits"].append(results["operating_profit"])
 
-        print("Batch simulations complete.")
-        print(f"Averages: {averages}")
-        return averages
+                # Calculate averages for the current combination
+                averages = {
+                    "combination": combination,
+                    "average_utilization": sum(combination_results["utilization"]) / num_simulations_per_combination,
+                    "average_revenue": sum(combination_results["revenue"]) / num_simulations_per_combination,
+                    "average_cost": sum(combination_results["costs"]) / num_simulations_per_combination,
+                    "average_profit": sum(combination_results["profits"]) / num_simulations_per_combination,
+                }
+                batch_results.append(averages)
+                
+                # Write the averages to the CSV file
+                writer.writerow([
+                    combination[0], combination[1], combination[2],
+                    averages["average_utilization"], averages["average_revenue"],
+                    averages["average_cost"], averages["average_profit"]
+                ])
+
+                print(f"Averages for combination {combination}: {averages}")
+
+        print(f"All batch simulations complete. Results saved to {output_file}.")
+        return batch_results
+
+
 
 
     def reset_simulation_variables(self,a_count,b_count,c_count):
