@@ -23,7 +23,8 @@ class RoomManager:
         rooms[room_name] = {
             "type": "WaitingRoom",
             "capacity": 100,  # Large capacity for many patients
-            "patients": []    # List to store patient info dictionaries
+            "patients": [],    # List to store patient info dictionaries
+            "occupied": True
         }
 
         return rooms
